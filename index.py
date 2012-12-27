@@ -27,8 +27,9 @@ def polynomial_index(coeffs, value):
     return poly(value)
 
 def construct_coeffs(params):
-    
-    attrs = ['x6', 'x5', 'x2', 'x1']
+
+    # Define the polynomial levels here (default behaviour is to go up to the sixth level)
+    attrs = ['x6', 'x5', 'x4', 'x3', 'x2', 'x1']
 
     coeffs = []
 
@@ -44,71 +45,73 @@ def construct_coeffs(params):
 
 ## Processing #################################################################
 
-# Workspace
-ws = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
+# Read in the parameters
+feature = arcpy.GetParameterAsText(0)
+transformed_field = arcpy.GetParameterAsText(1)
+multiplied_field = arcpy.GetParameterAsText(2)
+key_table_field = arcpy.GetParameterAsText(3)
+index_field = arcpy.GetParameterAsText(4)
+parameters_file = arcpy.GetParameterAsText(5)
+key_parameters_field = arcpy.GetParameterAsText(6)
+debug = arcpy.GetParameter(7)
 
-# Feature data
-feature = 'TestiData.gdb\TestiAineisto'
-ds = os.path.join(ws, feature)
-index_field_name = "INDEX"
-fields = ['J_IKAKOK', 'TILAVUUS_HA', 'KEY', index_field_name]
+fields = [transformed_field, multiplied_field, key_table_field, index_field]
 
-# Parameters
-parameters_file = "parameters.csv"
-parameters = os.path.join(ws, parameters_file)
-parameters = read_csv(parameters, sep=";")
-
-debug = False
-
-if arcpy.Exists(ds):
-
-    # Describe a feature class
-    #
-    desc = arcpy.Describe(ds)
-    
-    if index_field_name not in [field.name for field in desc.fields]:
-        print("Creating index field: %s" % index_field_name)
-        # Check if index field is present
-        arcpy.AddField_management(ds, index_field_name, "FLOAT", 9, "", "", "", 
-                                  "NULLABLE")
-    else:
-        print('Updating existing index field')
-
-    # Create update cursor for feature class
-    with arcpy.da.UpdateCursor(ds, fields) as cursor:
-
-        rows = 0
-        no_params_rows = 0
-        # Keys are defined as PUULAJI_KASVULK_ALUE
-        # Iterate over rows
-        for row in cursor:
-            # Extract the key for this row
-            row_key = row[2]
-            # Match a suitable row in the parameters DataFrame with the 
-            # current key
-            row_parameters = parameters[parameters['key'] == row_key]
-            
-            # Check that there is a mathing row in parameters DataFrame
-            if row_parameters.empty:
-                no_params_rows += 1
-            else:
-                # Construct a list of cofficients for the polynomial
-                coeffs = construct_coeffs(row_parameters)
-                # Calculate the polynomial index
-                index = polynomial_index(coeffs, row[0])
-
-                if debug:
-                    print('Row key: %s' % row_key)
-                    print('Untransformed value: %s' % row[0])
-                    print('Index value: %s' % index)
-
-                row[3] = index
-                cursor.updateRow(row)
-                rows += 1
-
-        print('\n**** Finished ****')
-        print('Updated %s rows' % rows)
-        if no_params_rows > 0:
-            print('Could not find parameters for %s rows' % no_params_rows)
+# Try to read in the parameters
+if os.path.exists(parameters_file):
+    parameters = read_csv(parameters_file, sep=";")
 else:
-    print('Target feature class <{0}> does not exist'.format(ds))
+    arcpy.AddError("{0} does not exist.".format(parameters_file))
+    raise arcpy.ExecuteError
+
+# Describe a feature class
+desc = arcpy.Describe(feature)
+
+if index_field not in [field.name for field in desc.fields]:
+    arcpy.AddMessage("Creating index field: {0}".format(index_field))
+    # Check if index field is present
+    arcpy.AddField_management(feature, index_field, "FLOAT", 9, "", "", "", "NULLABLE")
+else:
+    arcpy.AddMessage("Updating existing index field")
+
+# Create update cursor for feature class. Note that only a set of fields in a particular order are used. These fields
+# are defined by the user.
+with arcpy.da.UpdateCursor(feature, fields) as cursor:
+
+    rows = 0
+    no_params_rows = 0
+
+    # Iterate over rows
+    for row in cursor:
+        # Extract the key for this row
+        row_key = row[2]
+        # Match a suitable row in the parameters DataFrame with the current key
+        row_parameters = parameters[parameters[key_parameters_field] == row_key]
+
+        # Check that there is a matching row in parameters DataFrame
+        if row_parameters.empty:
+            arcpy.AddWarning("No parameter values found for key: {0}".format(row_key))
+            no_params_rows += 1
+        else:
+            # Construct a list of coefficients for the polynomial
+            coeffs = construct_coeffs(row_parameters)
+            # Calculate the polynomial index
+            poly = polynomial_index(coeffs, row[0])
+            # Multiply the transformed value (polynomial index) with the value of the multiplier field
+            index = poly * row[1]
+
+            if debug:
+                arcpy.AddMessage("Row key: {0}".format(row_key))
+                arcpy.AddMessage("Untransformed value: {0}".format(row[0]))
+                arcpy.AddMessage("Transformed value: {0}".format(poly))
+                arcpy.AddMessage("Multiplier value: {0}".format(row[1]))
+                arcpy.AddMessage("Index value: {0}".format(index))
+
+            row[3] = index
+            cursor.updateRow(row)
+            rows += 1
+
+    arcpy.AddMessage("\n**** Finished ****")
+    arcpy.AddMessage("Updated {0} rows".format(rows))
+    if no_params_rows > 0:
+        arcpy.AddWarning("Could not find parameters for {0} rows".format(no_params_rows))
