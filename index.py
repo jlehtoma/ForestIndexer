@@ -45,7 +45,7 @@ def construct_coeffs(params):
 ## Processing #################################################################
 
 # Workspace
-ws = r'C:\Users\admin_jlehtoma\workspace\ForestIndexer\forestindexer\data'
+ws = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
 
 # Feature data
 feature = 'TestiData.gdb\TestiAineisto'
@@ -58,6 +58,8 @@ parameters_file = "parameters.csv"
 parameters = os.path.join(ws, parameters_file)
 parameters = read_csv(parameters, sep=";")
 
+debug = False
+
 if arcpy.Exists(ds):
 
     # Describe a feature class
@@ -69,10 +71,14 @@ if arcpy.Exists(ds):
         # Check if index field is present
         arcpy.AddField_management(ds, index_field_name, "FLOAT", 9, "", "", "", 
                                   "NULLABLE")
+    else:
+        print('Updating existing index field')
 
     # Create update cursor for feature class
     with arcpy.da.UpdateCursor(ds, fields) as cursor:
-        
+
+        rows = 0
+        no_params_rows = 0
         # Keys are defined as PUULAJI_KASVULK_ALUE
         # Iterate over rows
         for row in cursor:
@@ -83,16 +89,26 @@ if arcpy.Exists(ds):
             row_parameters = parameters[parameters['key'] == row_key]
             
             # Check that there is a mathing row in parameters DataFrame
-            if not row_parameters.empty:
-                print('Row key: %s' % row_key)
-                print('Untransformed value: %s' % row[0])
+            if row_parameters.empty:
+                no_params_rows += 1
+            else:
                 # Construct a list of cofficients for the polynomial
                 coeffs = construct_coeffs(row_parameters)
                 # Calculate the polynomial index
                 index = polynomial_index(coeffs, row[0])
-                print('Index value: %s' % index)
+
+                if debug:
+                    print('Row key: %s' % row_key)
+                    print('Untransformed value: %s' % row[0])
+                    print('Index value: %s' % index)
+
                 row[3] = index
                 cursor.updateRow(row)
-                
+                rows += 1
+
+        print('\n**** Finished ****')
+        print('Updated %s rows' % rows)
+        if no_params_rows > 0:
+            print('Could not find parameters for %s rows' % no_params_rows)
 else:
     print('Target feature class <{0}> does not exist'.format(ds))
