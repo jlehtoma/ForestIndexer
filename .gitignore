@@ -164,3 +164,6 @@ pip-log.txt
 
 # Data not to be shared
 data/TestiData.gdb/*
+
+# PyCharm specific files
+.idea/*
