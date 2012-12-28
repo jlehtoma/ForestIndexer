@@ -6,39 +6,48 @@ from pandas import core, read_csv
 
 ## Helper functions ###########################################################
 
-def polynomial_index(coeffs, value):
-    '''Calculates an index transformation of value based on Nth level 
-    polynomial. The level and coefficients of the polynomial are provided as
-    a list where each element specifies the level and the coefficient. For
-    example, coeffs = [2.5, 0.1, 1.4] would be
+def polynomial_index(terms, value):
+    '''Calculates an index transformation of value based on Nth degree (max 6) polynomial. The terms of the polynomial
+    are provided as a list where the order of the element specifies the degree of the term and the value defined the
+    coefficient of the term. Last item is the constant term.
+
+    For example, terms = [2.5, 0.1, 1.4, 3] would be
     
-    2.5x^3 + 0.1x^2 + 1.4x
+    2.5x^3 + 0.1x^2 + 1.4x + 3
     
-    and  coeffs = [2.5, 0, 0.1, 0, 1.4] would be
+    and  terms = [2.5, 0, 0.1, 0, 1.4, 0] would be
     
     2.5x^5 + 0.1x^3 + 1.4x
     
-    @param coeffs: list holding the coefficients
+    @param terms: list holding the terms
     @param value: numerical value to be transformed  
     
     '''
     
-    poly = np.poly1d(coeffs) 
+    poly = np.poly1d(terms)
     return poly(value)
 
-def construct_coeffs(params):
+def construct_terms(params):
 
-    # Define the polynomial levels here (default behaviour is to go up to the sixth level)
-    attrs = ['x6', 'x5', 'x4', 'x3', 'x2', 'x1']
+    # Define the polynomial terms here (default behaviour is to go up to sixth term)
+    # TODO: maximum value of term degrees is now hard coded, this should be constructed from the data provided
+
+    attrs = ['x6', 'x5', 'x4', 'x3', 'x2', 'x', 'constant']
 
     coeffs = []
 
     for attr in attrs:
         value = getattr(params, attr)
-        if np.isnan(value):
-            coeffs.append(0.0)
-        else:
-            coeffs.append(float(value))
+        try:
+            value = float(value)
+            if np.isnan(value):
+                coeffs.append(0.0)
+            else:
+                coeffs.append(value)
+        except TypeError, e:
+            arcpy.AddError("Could not handle value: {0}\n".format(value))
+            arcpy.AddError(e)
+            raise
     
     return coeffs
         
@@ -87,6 +96,12 @@ with arcpy.da.UpdateCursor(feature, fields) as cursor:
         row_key = row[2]
         # Match a suitable row in the parameters DataFrame with the current key
         row_parameters = parameters[parameters[key_parameters_field] == row_key]
+        # Double keys are not ok, but will be tolerated. Use only the first row.
+        if len(row_parameters) > 1:
+            arcpy.AddWarning("More than entries ({0}) detected for the same key {1}".format(len(row_parameters),
+                                                                                            row_key))
+            arcpy.AddWarning("Using only the first row, fix this asap!")
+            row_parameters = row_parameters.take([0])
 
         # Check that there is a matching row in parameters DataFrame
         if row_parameters.empty:
@@ -94,16 +109,20 @@ with arcpy.da.UpdateCursor(feature, fields) as cursor:
             no_params_rows += 1
         else:
             # Construct a list of coefficients for the polynomial
-            coeffs = construct_coeffs(row_parameters)
+            try:
+                terms = construct_terms(row_parameters)
+            except TypeError:
+                arcpy.AddWarning("Error encountered at row: {0}".format(row_parameters  ))
+                continue
             # Calculate the polynomial index
-            poly = polynomial_index(coeffs, row[0])
+            poly_value = polynomial_index(terms, row[0])
             # Multiply the transformed value (polynomial index) with the value of the multiplier field
-            index = poly * row[1]
+            index = poly_value * row[1]
 
             if debug:
                 arcpy.AddMessage("Row key: {0}".format(row_key))
                 arcpy.AddMessage("Untransformed value: {0}".format(row[0]))
-                arcpy.AddMessage("Transformed value: {0}".format(poly))
+                arcpy.AddMessage("Transformed value: {0}".format(poly_value))
                 arcpy.AddMessage("Multiplier value: {0}".format(row[1]))
                 arcpy.AddMessage("Index value: {0}".format(index))
 
