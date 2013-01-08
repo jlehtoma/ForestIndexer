@@ -120,18 +120,19 @@ with arcpy.da.UpdateCursor(feature, fields) as cursor:
             else:
                 arcpy.AddWarning("Transformed field value Null for row key: {0}".format(row_key))
                 continue
+
+            # Constrict the poly value between 0 and 1
+            if poly_value < 0:
+                poly_value = 0
+            elif poly_value > 1:
+                poly_value = 1
+
             # Multiply the transformed value (polynomial index) with the value of the multiplier field
             if row[1] is not None:
                 index = poly_value * row[1]
             else:
                 arcpy.AddWarning("Multiplier field value Null for row key: {0}".format(row_key))
                 continue
-
-            # Constrict the index value between 0 and 1
-            if index < 0:
-                index = 0
-            elif index > 1:
-                index = 1
 
             if debug:
                 arcpy.AddMessage("Row key: {0}".format(row_key))
