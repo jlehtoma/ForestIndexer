@@ -115,9 +115,23 @@ with arcpy.da.UpdateCursor(feature, fields) as cursor:
                 arcpy.AddWarning("Error encountered at row: {0}".format(row_parameters  ))
                 continue
             # Calculate the polynomial index
-            poly_value = polynomial_index(terms, row[0])
+            if row[0] is not None:
+                poly_value = polynomial_index(terms, row[0])
+            else:
+                arcpy.AddWarning("Transformed field value Null for row key: {0}".format(row_key))
+                continue
             # Multiply the transformed value (polynomial index) with the value of the multiplier field
-            index = poly_value * row[1]
+            if row[1] is not None:
+                index = poly_value * row[1]
+            else:
+                arcpy.AddWarning("Multiplier field value Null for row key: {0}".format(row_key))
+                continue
+
+            # Constrict the index value between 0 and 1
+            if index < 0:
+                index = 0
+            elif index > 1:
+                index = 1
 
             if debug:
                 arcpy.AddMessage("Row key: {0}".format(row_key))
